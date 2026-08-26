@@ -48,3 +48,21 @@ décisions, chacune implémentée dans une fonction testée de
 Limite assumée : les ventes portant sur plusieurs logements sont
 exclues, faute de prix unitaire exploitable.
 
+### Périmètre et limites
+
+Sur 27 085 mutations (année 2024), après agrégation par vente :
+
+| `nb_logements` | Mutations | Part | Traitement |
+|---|---|---|---|
+| 0 | 7 753 | 28,6 % | Hors périmètre : terrains, garages, locaux commerciaux |
+| 1 | 16 781 | 62,0 % | Conservées |
+| ≥ 2 | 2 551 | 9,4 % | Écartées : pas de prix unitaire exploitable |
+
+Les ventes sans logement ne relèvent pas de ce modèle, qui estime le
+prix d'un bien d'habitation. La limite réelle porte sur les 9,4 % de
+ventes groupées : DVF ne publie qu'un prix global, dont on ne peut
+pas déduire la valeur de chaque logement.
+
+Piste d'amélioration : pour les ventes groupées de biens homogènes,
+répartir le prix au prorata des surfaces. Non retenu ici, l'hypothèse
+d'homogénéité étant invérifiable.
