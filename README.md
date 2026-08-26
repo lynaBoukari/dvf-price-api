@@ -66,3 +66,73 @@ pas déduire la valeur de chaque logement.
 Piste d'amélioration : pour les ventes groupées de biens homogènes,
 répartir le prix au prorata des surfaces. Non retenu ici, l'hypothèse
 d'homogénéité étant invérifiable.
+
+## Modèle
+
+`HistGradientBoostingRegressor` entraîné sur le **logarithme du prix**,
+sur les ventes 2022–2023 (44 298), évalué sur 2024 (16 729).
+
+| | MAE | MAPE moyen | RMSE |
+|---|---|---|---|
+| Référence (3 738 €/m² médian × surface) | 114 128 € | 60,7 % | 201 467 € |
+| Modèle | 63 966 € | 30,8 % | 124 292 € |
+
+**Gain de 44,0 % sur la référence.**
+
+### Lire ces chiffres correctement
+
+Le MAPE moyen est trompeur : la distribution des erreurs est très
+asymétrique.
+
+| | erreur relative |
+|---|---|
+| médiane | 15,5 % |
+| 90e centile | 54,5 % |
+| 99e centile | 261,2 % |
+
+**La prédiction typique se trompe de 15,5 %.** Une minorité de
+prédictions très mauvaises tire la moyenne vers le haut.
+
+Erreur médiane par quintile de prix :
+
+| Quintile | Prix médian | Erreur médiane |
+|---|---|---|
+| très bas | 105 000 € | 26,2 % |
+| bas | 165 000 € | 14,4 % |
+| moyen | 230 000 € | 13,2 % |
+| haut | 311 050 € | 13,5 % |
+| très haut | 505 000 € | 15,2 % |
+
+## Choix de modélisation
+
+**Séparation temporelle, pas aléatoire.** En production le modèle
+estimera des ventes futures sans jamais accéder à des transactions
+postérieures. Un découpage aléatoire produirait un score optimiste et
+non représentatif.
+
+**L'année n'est pas une variable.** Les modèles à base d'arbres
+n'extrapolent pas : une année inconnue serait traitée comme la plus
+proche année connue. Seul le mois est conservé, pour la saisonnalité.
+
+**Entraînement sur `log(prix)`.** Entraîné sur le prix brut, le modèle
+minimisait l'erreur en euros et négligeait donc le bas du marché, où
+l'erreur médiane atteignait 33,9 %. Le passage au logarithme, qui revient
+à minimiser l'erreur relative, l'a ramenée à 26,2 % — avec un léger coût
+sur le haut du marché (15,0 % → 15,2 %), conforme au mécanisme attendu.
+La transformation est encapsulée dans un `TransformedTargetRegressor` :
+`.predict()` renvoie des euros.
+
+**Une référence systématique.** Prix médian au m² du jeu d'entraînement
+× surface. Sans point de comparaison, une erreur en euros n'est pas
+interprétable.
+
+## Limites connues
+
+- Le quintile de prix le plus bas reste le moins bien prédit (26,2 %).
+  DVF ne publie ni l'état du bien, ni l'étage, ni la présence de travaux.
+- Les ventes portant sur plusieurs logements sont exclues, faute de prix
+  unitaire exploitable (9,4 % des mutations).
+- Périmètre limité à la Gironde.
+
+Le modèle est accompagné d'un `models/modele.json` décrivant les données
+d'entraînement, les colonnes attendues et les métriques obtenues
