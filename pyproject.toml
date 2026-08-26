@@ -9,6 +9,8 @@ dependencies =[
     "requests>=2.32",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "scikit-learn>=1.9.0",
+    "joblib>=1.5.3",
 ]
 
 [dependency-groups]
@@ -41,4 +43,12 @@ python_version ="3.11"
 strict = true
 
 [tool.pytest.ini_options]
+markers = ["lent: test qui prend plus d'une seconde (entraînement de modèle)"]
 testpaths=["tests"]
+
+
+# scikit-learn et joblib ne publient pas d'annotations de types.
+# On déclare l'exception explicitement plutôt que de désactiver le mode strict.
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "joblib.*"]
+ignore_missing_imports = true
