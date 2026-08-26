@@ -7,6 +7,7 @@ from dataclasses import asdict
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from dvf.config import settings
@@ -31,16 +32,30 @@ def predire_reference(entrainement: pd.DataFrame, test: pd.DataFrame) -> np.ndar
     return np.asarray(test["surface_bati"] * prix_m2, dtype=float)
 
 
-def entrainer(entrainement: pd.DataFrame) -> HistGradientBoostingRegressor:
-    """Entraîne le modèle sur le jeu d'entraînement."""
+def entrainer(entrainement: pd.DataFrame) -> TransformedTargetRegressor:
+    """Entraîne le modèle sur le logarithme du prix.
+
+    Entraîné sur le prix brut, le modèle minimise l'erreur en euros : une
+    erreur de 100 000 € sur un bien à 800 000 € pèse cent fois plus qu'une
+    erreur de 10 000 € sur un bien à 60 000 €. Il néglige donc le bas du
+    marché. Minimiser l'erreur sur le logarithme revient à minimiser l'erreur
+    RELATIVE, ce que mesure justement le MAPE.
+
+    TransformedTargetRegressor applique log() à l'entraînement et exp() à la
+    prédiction : l'appelant continue de recevoir des euros, sans rien savoir.
+    """
     variables, cible = preparer(entrainement)
 
-    modele = HistGradientBoostingRegressor(
-        max_iter=300,
-        learning_rate=0.08,
-        max_depth=8,
-        categorical_features="from_dtype",
-        random_state=GRAINE,
+    modele = TransformedTargetRegressor(
+        regressor=HistGradientBoostingRegressor(
+            max_iter=300,
+            learning_rate=0.08,
+            max_depth=8,
+            categorical_features="from_dtype",
+            random_state=GRAINE,
+        ),
+        func=np.log,
+        inverse_func=np.exp,
     )
     modele.fit(variables, cible)
     return modele
