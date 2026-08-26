@@ -5,8 +5,9 @@ publiques DVF (Demandes de valeurs foncières, DGFiP).
 
 ## État du projet
 
-En cours de construction. Session 1 sur 18 : structure et acquisition
-des données.
+En construction. Actuellement : structure du projet et acquisition
+des données. À venir : nettoyage, modèle, API, conteneurisation,
+déploiement continu.
 
 ## Démarrer
 
