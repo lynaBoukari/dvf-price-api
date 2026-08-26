@@ -7,6 +7,7 @@ import pandas as pd
 
 from dvf.config import settings
 from dvf.data.clean import nettoyer
+from dvf.data.qualite import RapportNettoyage, verifier
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,13 @@ def charger_brut(chemin: Path) -> pd.DataFrame:
     return pd.read_csv(chemin, compression="gzip", usecols=COLONNES_LUES, low_memory=False)
 
 
-def construire(departement: str, annees: tuple[int, ...]) -> pd.DataFrame:
-    """Charge, concatène et nettoie plusieurs années pour un département."""
+def charger_annees(departement: str, annees: tuple[int, ...]) -> pd.DataFrame:
+    """Charge et concatène plusieurs années pour un département.
 
+    Cette fonction ne fait que charger. Le nettoyage est appelé séparément,
+    ce qui permet de mesurer combien de lignes chaque étape écarte.
+    """
     morceaux = []
-
     for annee in annees:
         chemin = settings.raw_data_dir / f"dvf_{departement}_{annee}.csv.gz"
         if not chemin.exists():
@@ -49,22 +52,25 @@ def construire(departement: str, annees: tuple[int, ...]) -> pd.DataFrame:
         message = "Aucun fichier brut trouvé. Lance d'abord dvf.data.download."
         raise FileNotFoundError(message)
 
-    brut = pd.concat(morceaux, ignore_index=True)
-    logger.info("Chargé %d lignes brutes", len(brut))
-    return nettoyer(brut)
+    return pd.concat(morceaux, ignore_index=True)
 
 
 def main() -> None:
-    """Construit le jeu propre et l'écrit en Parquet."""
+    """Construit le jeu propre, contrôle sa qualité, et l'écrit en Parquet."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 
-    propre = construire("33", (2022, 2023, 2024))
+    brut = charger_annees("33", (2022, 2023, 2024))
+    propre = nettoyer(brut)
+
+    rapport = RapportNettoyage(lignes_brutes=len(brut), ventes_retenues=len(propre))
+    verifier(rapport)
+    logger.info(rapport.resumer())
 
     settings.processed_data_dir.mkdir(parents=True, exist_ok=True)
     destination = settings.processed_data_dir / "ventes_33.parquet"
     propre.to_parquet(destination, index=False)
 
-    logger.info("Écrit %s : %d ventes", destination.name, len(propre))
+    logger.info("Écrit %s", destination.name)
     logger.info("Prix médian : %.0f EUR", propre["prix"].median())
     logger.info("Surface médiane : %.0f m2", propre["surface_bati"].median())
 
