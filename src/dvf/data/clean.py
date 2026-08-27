@@ -1,7 +1,10 @@
-"""Nettoyage des données DVF brutes.
+"""Cleaning of the raw DVF data.
 
-Chaque fonction applique UNE décision de nettoyage et une seule. C'est ce qui
-permet de les tester séparément, et d'expliquer chaque choix en entretien.
+Each function applies exactly ONE cleaning decision. That is what makes them
+testable in isolation, and what lets us justify every choice separately.
+
+Note on naming: column names stay in French because they come from the DVF
+dataset, which is French. Everything the code itself defines is in English.
 """
 
 import logging
@@ -10,52 +13,54 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Les seuls types de bien que ce modèle traite.
-LOGEMENTS = frozenset({"Maison", "Appartement"})
+# The only property types this model handles.
+DWELLING_TYPES = frozenset({"Maison", "Appartement"})
 
-# Seules les ventes de gré à gré reflètent un prix de marché.
-NATURES_CONSERVEES = frozenset({"Vente"})
+# Only arm's length sales reflect a market price.
+KEPT_SALE_TYPES = frozenset({"Vente"})
 
-# Bornes métier : en dessous, ce n'est pas une transaction réelle ;
-# au-dessus, c'est un bien exceptionnel hors du périmètre du modèle.
-PRIX_MIN = 10_000.0
-PRIX_MAX = 5_000_000.0
+# Domain bounds: below this it is not a real transaction, above it the
+# property is exceptional and out of the model's scope.
+MIN_PRICE = 10_000.0
+MAX_PRICE = 5_000_000.0
 
-
-def filtrer_ventes(df: pd.DataFrame) -> pd.DataFrame:
-    """Ne garde que les mutations qui sont de vraies ventes de marché."""
-
-    avant = len(df)
-    resultat = df[df["nature_mutation"].isin(NATURES_CONSERVEES)]
-    logger.info("filtrer_ventes : %d -> %d lignes", avant, len(resultat))
-    return resultat
+MIN_LIVING_AREA = 9.0
+MAX_LIVING_AREA = 1000.0
 
 
-def supprimer_prix_manquants(df: pd.DataFrame) -> pd.DataFrame:
-    """Supprime les lignes sans prix."""
-
-    avant = len(df)
-    resultat = df.dropna(subset=["valeur_fonciere"])
-
-    logger.info("supprimer_prix_manquants : %d -> %d ", avant, len(resultat))
-
-    return resultat
+def keep_market_sales(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only the transactions that are genuine market sales."""
+    before = len(df)
+    result = df[df["nature_mutation"].isin(KEPT_SALE_TYPES)]
+    logger.info("keep_market_sales: %d -> %d rows", before, len(result))
+    return result
 
 
-def agreger_par_mutation(df: pd.DataFrame) -> pd.DataFrame:
-    """Réduit chaque mutation à une seule ligne.
+def drop_missing_price(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows with no price.
 
-    Une vente peut porter sur plusieurs lots (logement, parking, cave), et DVF
-    recopie le prix total sur chacun. On additionne donc les surfaces des
-    logements et on ne garde qu'une fois le prix.
+    We never impute a missing target value: the model would learn the value
+    we made up instead of reality.
     """
+    before = len(df)
+    result = df.dropna(subset=["valeur_fonciere"])
+    logger.info("drop_missing_price: %d -> %d rows", before, len(result))
+    return result
 
-    travail = df.copy()
-    travail["est_logement"] = travail["type_local"].isin(LOGEMENTS)
-    travail["surface_logement"] = travail["surface_reelle_bati"].where(travail["est_logement"])
-    travail["pieces_logement"] = travail["nombre_pieces_principales"].where(travail["est_logement"])
 
-    agrege = travail.groupby("id_mutation").agg(
+def aggregate_by_sale(df: pd.DataFrame) -> pd.DataFrame:
+    """Reduce every sale to a single row.
+
+    One sale can cover several lots (dwelling, parking space, cellar), and DVF
+    repeats the total price on each of them. We therefore sum the dwelling
+    areas and keep the price only once.
+    """
+    work = df.copy()
+    work["est_logement"] = work["type_local"].isin(DWELLING_TYPES)
+    work["surface_logement"] = work["surface_reelle_bati"].where(work["est_logement"])
+    work["pieces_logement"] = work["nombre_pieces_principales"].where(work["est_logement"])
+
+    aggregated = work.groupby("id_mutation").agg(
         date_mutation=("date_mutation", "first"),
         prix=("valeur_fonciere", "first"),
         nom_commune=("nom_commune", "first"),
@@ -69,56 +74,52 @@ def agreger_par_mutation(df: pd.DataFrame) -> pd.DataFrame:
         latitude=("latitude", "first"),
     )
 
-    logements = travail[travail["est_logement"]]
-    agrege["type_bien"] = logements.groupby("id_mutation")["type_local"].first()
+    dwellings = work[work["est_logement"]]
+    aggregated["type_bien"] = dwellings.groupby("id_mutation")["type_local"].first()
 
-    logger.info("agreger_par_mutation : %d -> %d mutations", len(df), len(agrege))
+    logger.info("aggregate_by_sale: %d rows -> %d sales", len(df), len(aggregated))
+    return aggregated.reset_index()
 
-    return agrege.reset_index()
 
+def keep_single_dwelling(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only sales covering exactly one dwelling.
 
-def garder_logement_unique(df: pd.DataFrame) -> pd.DataFrame:
-    """Ne garde que les ventes portant sur exactement un logement.
-
-    Une vente groupant deux appartements n'a pas de prix unitaire exploitable.
+    A sale bundling two flats has no usable unit price.
     """
-    avant = len(df)
-    resultat = df[df["nb_logements"] == 1]
-    logger.info("garder_logements_unique : %d -> %d mutations ", avant, len(resultat))
+    before = len(df)
+    result = df[df["nb_logements"] == 1]
+    logger.info("keep_single_dwelling: %d -> %d sales", before, len(result))
+    return result
 
-    return resultat
 
-
-def filtrer_prix(
+def filter_price_range(
     df: pd.DataFrame,
-    prix_min: float = PRIX_MIN,
-    prix_max: float = PRIX_MAX,
+    min_price: float = MIN_PRICE,
+    max_price: float = MAX_PRICE,
 ) -> pd.DataFrame:
-    """Écarte les prix hors du périmètre du modèle."""
-    avant = len(df)
-    resultat = df[df["prix"].between(prix_min, prix_max)]
-    logger.info("filtrer_prix : %d -> %d mutations", avant, len(resultat))
-    return resultat
+    """Drop prices outside the model's scope."""
+    before = len(df)
+    result = df[df["prix"].between(min_price, max_price)]
+    logger.info("filter_price_range: %d -> %d sales", before, len(result))
+    return result
 
 
-def filtrer_surfaces(df: pd.DataFrame) -> pd.DataFrame:
-    """Écarte les surfaces nulles ou absurdes."""
+def filter_area_range(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop zero or implausible living areas."""
+    before = len(df)
+    result = df[df["surface_bati"].between(MIN_LIVING_AREA, MAX_LIVING_AREA)]
+    logger.info("filter_area_range: %d -> %d sales", before, len(result))
+    return result
 
-    avant = len(df)
-    resultat = df[df["surface_bati"].between(9, 1000)]
-    logger.info("filtrer_surfaces : %d -> %d mutations", avant, len(resultat))
-    return resultat
 
-
-def nettoyer(df: pd.DataFrame) -> pd.DataFrame:
-    """Enchaîne toutes les étapes de nettoyage, dans l'ordre."""
-
+def clean_sales(df: pd.DataFrame) -> pd.DataFrame:
+    """Run every cleaning step, in order."""
     return (
-        df.pipe(filtrer_ventes)
-        .pipe(supprimer_prix_manquants)
-        .pipe(agreger_par_mutation)
-        .pipe(garder_logement_unique)
-        .pipe(filtrer_prix)
-        .pipe(filtrer_surfaces)
+        df.pipe(keep_market_sales)
+        .pipe(drop_missing_price)
+        .pipe(aggregate_by_sale)
+        .pipe(keep_single_dwelling)
+        .pipe(filter_price_range)
+        .pipe(filter_area_range)
         .reset_index(drop=True)
     )

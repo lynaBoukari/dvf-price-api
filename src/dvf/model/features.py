@@ -1,4 +1,8 @@
-"""Préparation des variables explicatives et séparation train / test."""
+"""Feature building and train / test split.
+
+Column names stay in French: they come from the DVF dataset. Everything the
+code defines is in English.
+"""
 
 import logging
 
@@ -6,7 +10,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-COLONNES_NUMERIQUES = [
+NUMERIC_FEATURES = [
     "surface_bati",
     "nb_pieces",
     "surface_terrain",
@@ -15,51 +19,50 @@ COLONNES_NUMERIQUES = [
     "nb_lots",
 ]
 
-COLONNES_CATEGORIELLES = ["type_bien"]
+CATEGORICAL_FEATURES = ["type_bien"]
 
-CIBLE = "prix"
+TARGET = "prix"
 
 
-def separer_temporellement(
+def time_based_split(
     df: pd.DataFrame,
-    date_bascule: str,
+    split_date: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Coupe le jeu en deux selon la date, pas au hasard.
+    """Split the dataset by date, not at random.
 
-    Une séparation aléatoire laisserait le modèle voir des ventes de 2024
-    pour en prédire de 2023 : impossible en production, et le score obtenu
-    serait trop optimiste. On entraîne sur le passé, on teste sur le futur.
+    A random split would let the model see 2024 sales in order to predict
+    2023 ones: impossible in production, and the resulting score would be
+    optimistic. We train on the past and evaluate on the future.
     """
     dates = pd.to_datetime(df["date_mutation"])
-    bascule = pd.Timestamp(date_bascule)
+    split_point = pd.Timestamp(split_date)
 
-    entrainement = df[dates < bascule]
-    test = df[dates >= bascule]
+    train = df[dates < split_point]
+    test = df[dates >= split_point]
 
     logger.info(
-        "Separation au %s : %d ventes d'entrainement, %d de test",
-        date_bascule,
-        len(entrainement),
+        "Split at %s: %d training sales, %d test sales",
+        split_date,
+        len(train),
         len(test),
     )
-    return entrainement, test
+    return train, test
 
 
-def preparer(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    """Sépare les variables explicatives de la cible.
+def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Split the dataframe into features and target.
 
-    On ne garde volontairement PAS l'année : le modèle serait incapable
-    d'extrapoler sur une année qu'il n'a jamais vue. Le mois, lui, capture
-    une saisonnalité qui se répète.
+    We deliberately do NOT keep the year: tree-based models cannot
+    extrapolate, so an unseen year would be treated as the closest known one.
+    The month is kept, because it captures a seasonality that repeats.
     """
+    work = df.copy()
+    work["mois"] = pd.to_datetime(work["date_mutation"]).dt.month
 
-    travail = df.copy()
-    # feature engineering creation de la variable mois
-    travail["mois"] = pd.to_datetime(travail["date_mutation"]).dt.month
-    colonnes = [*COLONNES_NUMERIQUES, "mois", *COLONNES_CATEGORIELLES]
-    variables = travail[colonnes].copy()
+    columns = [*NUMERIC_FEATURES, "mois", *CATEGORICAL_FEATURES]
+    features = work[columns].copy()
 
-    for colonne in COLONNES_CATEGORIELLES:
-        variables[colonne] = variables[colonne].astype("category")
+    for column in CATEGORICAL_FEATURES:
+        features[column] = features[column].astype("category")
 
-    return variables, travail[CIBLE]
+    return features, work[TARGET]

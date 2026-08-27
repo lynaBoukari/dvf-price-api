@@ -1,22 +1,22 @@
-"""Tests du nettoyage.
+"""Tests for the cleaning pipeline.
 
-On fabrique de petits tableaux à la main plutôt que de lire le vrai fichier :
-un test doit être rapide, reproductible, et ne dépendre d'aucun fichier externe.
-Chaque test vérifie UNE décision de nettoyage.
+We build small dataframes by hand rather than reading the real file: a test
+must be fast, reproducible, and independent of any external file. Each test
+checks exactly ONE cleaning decision.
 """
 
 import pandas as pd
 
 from dvf.data.clean import (
-    agreger_par_mutation,
-    filtrer_prix,
-    filtrer_ventes,
-    garder_logement_unique,
-    nettoyer,
-    supprimer_prix_manquants,
+    aggregate_by_sale,
+    clean_sales,
+    drop_missing_price,
+    filter_price_range,
+    keep_market_sales,
+    keep_single_dwelling,
 )
 
-COLONNES = [
+COLUMNS = [
     "id_mutation",
     "date_mutation",
     "nature_mutation",
@@ -31,111 +31,100 @@ COLONNES = [
     "latitude",
 ]
 
-# la "ligne" est le patron une fabrique de données de test
-# je l'utilise pour eviter de recopier 12  colonnes à chaque test
 
-
-def ligne(
-    id_mutation: str,
+def make_row(
+    sale_id: str,
     nature: str = "Vente",
-    prix: float | None = 200_000.0,
-    type_local: str | None = "Appartement",
-    surface: float | None = 60.0,
-    pieces: float | None = 3.0,
+    price: float | None = 200_000.0,
+    local_type: str | None = "Appartement",
+    area: float | None = 60.0,
+    rooms: float | None = 3.0,
 ) -> dict[str, object]:
-    """Fabrique une ligne DVF plausible, avec des valeurs par défaut saines."""
+    """Build a plausible DVF row, with sane defaults."""
     return {
-        "id_mutation": id_mutation,
+        "id_mutation": sale_id,
         "date_mutation": "2024-03-15",
         "nature_mutation": nature,
-        "valeur_fonciere": prix,
+        "valeur_fonciere": price,
         "nom_commune": "Bordeaux",
         "code_postal": 33000.0,
-        "type_local": type_local,
-        "surface_reelle_bati": surface,
-        "nombre_pieces_principales": pieces,
+        "type_local": local_type,
+        "surface_reelle_bati": area,
+        "nombre_pieces_principales": rooms,
         "surface_terrain": 0.0,
         "longitude": -0.57,
         "latitude": 44.83,
     }
 
 
-def tableau(*lignes: dict[str, object]) -> pd.DataFrame:
-    return pd.DataFrame(list(lignes), columns=COLONNES)
+def make_frame(*rows: dict[str, object]) -> pd.DataFrame:
+    return pd.DataFrame(list(rows), columns=COLUMNS)
 
 
-def test_filtrer_ventes_ecarte_les_adjudications() -> None:
-    df = tableau(
-        ligne("A", nature="Vente"),
-        ligne("B", nature="Adjudication"),
-        ligne("C", nature="Expropriation"),
+def test_keep_market_sales_drops_auctions() -> None:
+    df = make_frame(
+        make_row("A", nature="Vente"),
+        make_row("B", nature="Adjudication"),
+        make_row("C", nature="Expropriation"),
     )
-    resultat = filtrer_ventes(df)
-    assert list(resultat["id_mutation"]) == ["A"]
+    assert list(keep_market_sales(df)["id_mutation"]) == ["A"]
 
 
-def test_supprimer_prix_manquants() -> None:
-    df = tableau(ligne("A"), ligne("B", prix=None))
-    assert list(supprimer_prix_manquants(df)["id_mutation"]) == ["A"]
+def test_drop_missing_price() -> None:
+    df = make_frame(make_row("A"), make_row("B", price=None))
+    assert list(drop_missing_price(df)["id_mutation"]) == ["A"]
 
 
-def test_agreger_fusionne_les_lots_d_une_meme_vente() -> None:
-    """Un appartement vendu avec son parking : deux lignes, une seule vente."""
-    df = tableau(
-        ligne("A", type_local="Appartement", surface=60.0, pieces=3.0),
-        ligne("A", type_local="Dependance", surface=12.0, pieces=0.0),
+def test_aggregate_merges_the_lots_of_one_sale() -> None:
+    """A flat sold with its parking space: two rows, one single sale."""
+    df = make_frame(
+        make_row("A", local_type="Appartement", area=60.0, rooms=3.0),
+        make_row("A", local_type="Dependance", area=12.0, rooms=0.0),
     )
-    resultat = agreger_par_mutation(df)
+    result = aggregate_by_sale(df)
 
-    assert len(resultat) == 1
-    assert resultat.loc[0, "prix"] == 200_000.0
-    assert resultat.loc[0, "nb_lots"] == 2
-    assert resultat.loc[0, "nb_logements"] == 1
-    assert resultat.loc[0, "surface_bati"] == 60.0
-    assert resultat.loc[0, "type_bien"] == "Appartement"
+    assert len(result) == 1
+    assert result.loc[0, "prix"] == 200_000.0
+    assert result.loc[0, "nb_lots"] == 2
+    assert result.loc[0, "nb_logements"] == 1
+    assert result.loc[0, "surface_bati"] == 60.0
+    assert result.loc[0, "type_bien"] == "Appartement"
 
 
-def test_agreger_ne_compte_pas_le_prix_deux_fois() -> None:
-    """Le piège principal de DVF : le prix total est recopié sur chaque ligne."""
-    df = tableau(
-        ligne("A", surface=60.0),
-        ligne("A", type_local="Dependance", surface=12.0),
-        ligne("A", type_local="Dependance", surface=8.0),
+def test_aggregate_does_not_count_the_price_twice() -> None:
+    """The main DVF trap: the total price is repeated on every row."""
+    df = make_frame(
+        make_row("A", area=60.0),
+        make_row("A", local_type="Dependance", area=12.0),
+        make_row("A", local_type="Dependance", area=8.0),
     )
-    resultat = agreger_par_mutation(df)
-    assert resultat["prix"].sum() == 200_000.0
+    assert aggregate_by_sale(df)["prix"].sum() == 200_000.0
 
 
-def test_garder_logement_unique_ecarte_les_ventes_groupees() -> None:
-    df = tableau(
-        ligne("A", surface=60.0),
-        ligne("B", surface=50.0),
-        ligne("B", surface=70.0),
+def test_keep_single_dwelling_drops_bundled_sales() -> None:
+    df = make_frame(
+        make_row("A", area=60.0),
+        make_row("B", area=50.0),
+        make_row("B", area=70.0),
     )
-    resultat = garder_logement_unique(agreger_par_mutation(df))
-    assert list(resultat["id_mutation"]) == ["A"]
+    result = keep_single_dwelling(aggregate_by_sale(df))
+    assert list(result["id_mutation"]) == ["A"]
 
 
-def test_filtrer_prix_ecarte_les_extremes() -> None:
+def test_filter_price_range_drops_outliers() -> None:
     df = pd.DataFrame({"prix": [1.0, 9_999.0, 250_000.0, 9_000_000.0]})
-    assert list(filtrer_prix(df)["prix"]) == [250_000.0]
+    assert list(filter_price_range(df)["prix"]) == [250_000.0]
 
 
-def test_nettoyer_enchaine_tout_sans_erreur() -> None:
-    df = tableau(
-        ligne("A", surface=60.0),
-        ligne("A", type_local="Dependance", surface=12.0),
-        ligne("B", nature="Adjudication"),
-        ligne("C", prix=None),
-        ligne("D", prix=50.0),
-        ligne("E", surface=None, type_local="Local industriel"),
+def test_clean_sales_runs_the_whole_pipeline() -> None:
+    df = make_frame(
+        make_row("A", area=60.0),
+        make_row("A", local_type="Dependance", area=12.0),
+        make_row("B", nature="Adjudication"),
+        make_row("C", price=None),
+        make_row("D", price=50.0),
+        make_row("E", area=None, local_type="Local industriel"),
     )
-
-    resultat = nettoyer(df)
-
-    assert list(resultat["id_mutation"]) == ["A"]
-    # on vérifie d'abord la forme du résultat (combien de lignes, quelles colonnes)
-    assert resultat.loc[0, "surface_bati"] == 60  # ensuite son contenu
-
-
-# uv run pytest -v (pour afficher les noms de tests)
+    result = clean_sales(df)
+    assert list(result["id_mutation"]) == ["A"]
+    assert result.loc[0, "surface_bati"] == 60.0

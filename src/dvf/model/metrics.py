@@ -1,4 +1,4 @@
-"""Mesure de la qualité des prédictions."""
+"""Prediction quality measurement."""
 
 from dataclasses import dataclass
 
@@ -7,29 +7,29 @@ import pandas as pd
 
 
 @dataclass(frozen=True)
-class Metriques:
-    """Trois mesures complémentaires d'une erreur de prédiction."""
+class Metrics:
+    """Three complementary views of a prediction error."""
 
     mae: float
-    """Erreur absolue moyenne, en euros. Facile à expliquer."""
+    """Mean absolute error, in euros. Easy to explain to anyone."""
 
     mape: float
-    """Erreur relative moyenne, en pourcentage. Comparable entre marchés."""
+    """Mean absolute percentage error. Comparable across price ranges."""
 
     rmse: float
-    """Racine de l'erreur quadratique. Pénalise fortement les grosses erreurs."""
+    """Root mean squared error. Heavily penalises large errors."""
 
-    def resumer(self) -> str:
+    def summary(self) -> str:
         return f"MAE {self.mae:,.0f} EUR | MAPE {self.mape:.1%} | RMSE {self.rmse:,.0f} EUR"
 
 
-def evaluer(reel: pd.Series, predit: np.ndarray) -> Metriques:
-    """Calcule les trois métriques à la main, pour comprendre ce qu'elles font."""
-    valeurs = np.asarray(reel, dtype=float)
-    erreurs = valeurs - predit
+def evaluate(actual: pd.Series, predicted: np.ndarray) -> Metrics:
+    """Compute the three metrics by hand, to understand what they do."""
+    values = np.asarray(actual, dtype=float)
+    errors = values - predicted
 
-    return Metriques(
-        mae=float(np.mean(np.abs(erreurs))),
-        mape=float(np.mean(np.abs(erreurs / valeurs))),
-        rmse=float(np.sqrt(np.mean(erreurs**2))),
+    return Metrics(
+        mae=float(np.mean(np.abs(errors))),
+        mape=float(np.mean(np.abs(errors / values))),
+        rmse=float(np.sqrt(np.mean(errors**2))),
     )
