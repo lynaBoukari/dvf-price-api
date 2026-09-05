@@ -136,3 +136,31 @@ interprétable.
 
 Le modèle est accompagné d'un `models/modele.json` décrivant les données
 d'entraînement, les colonnes attendues et les métriques obtenues
+
+## Entrepôt
+
+Les données nettoyées sont chargées dans BigQuery (`dvf_raw.ventes`,
+région `europe-west1`). Les requêtes d'analyse sont versionnées dans `analyses/`.
+
+| Fichier | Contenu |
+|---|---|
+| `01_exploration.sql` | Chargement, contrôle d'équivalence pandas/SQL, premiers agrégats |
+| `02_fenetrage.sql` | Fonctions de fenêtrage, dédoublonnage, évolution annuelle |
+
+### Ce que l'exploration a montré
+
+- **Retournement du marché en 2024.** Le volume chute d'un tiers entre 2022 et
+  2024 pendant que le prix au m² ne cède que 7 %. Sur les dix communes les plus
+  actives, cinq montaient encore en 2023 ; les dix baissent en 2024.
+- **La localisation domine.** Facteur 12 entre la commune la plus chère
+  (Lège-Cap-Ferret, 10 602 €/m²) et la moins chère (Sainte-Foy-la-Grande, 896 €).
+  Bordeaux concentre 22 % des ventes.
+- **Le modèle apprend un régime de marché et est évalué sur un autre**, ce qui
+  justifie la séparation temporelle par la mesure et non par principe.
+
+### Dettes assumées
+
+| Dette | Symptôme | Réparation prévue |
+|---|---|---|
+| Typage | `date_mutation` en `STRING`, `code_postal` en `FLOAT` | Couche staging dbt |
+| Nommage des couches | `dvf_raw` contient de la donnée déjà transformée | Passage en ELT : charger le CSV brut, transformer en SQL |
