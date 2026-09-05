@@ -16,9 +16,10 @@ from dvf.model.train import predict_baseline, train_model
 def test_baseline_uses_the_training_median_not_the_test_one() -> None:
     """The price per sqm must come from the training set, never the test set.
 
-    The test price here is deliberately absurd: if it influenced the
+    The test price  here is deliberately absurd: if it influenced the
     prediction, this test would fail. It is a leakage guardrail.
     """
+
     train = pd.DataFrame(
         {
             "prix": [200_000.0, 300_000.0, 400_000.0],

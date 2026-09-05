@@ -1,7 +1,6 @@
 """Feature building and train / test split.
 
-Column names stay in French: they come from the DVF dataset. Everything the
-code defines is in English.
+Column names stay in French: they come from the DVF dataset.
 """
 
 import logging
