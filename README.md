@@ -162,5 +162,5 @@ région `europe-west1`). Les requêtes d'analyse sont versionnées dans `analyse
 
 | Dette | Symptôme | Réparation prévue |
 |---|---|---|
-| Typage | `date_mutation` en `STRING`, `code_postal` en `FLOAT` | réparée — couche de staging dbt |
+| Typage | `date_mutation` en `STRING`, `code_postal` en `FLOAT` |reparée|
 | Nommage des couches | `dvf_raw` contient de la donnée déjà transformée | Passage en ELT : charger le CSV brut, transformer en SQL |
