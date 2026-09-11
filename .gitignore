@@ -7,5 +7,7 @@ __pycache__/
 .ipynb_checkpoints/
 data/raw/
 data/processed/
-models/
+/models/
+data/models/
 .env
+logs/
