@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: dvf_raw
+    database: project-119b887b-87ca-43ee-bf0
+    schema: dvf_raw
+    tables:
+      - name: ventes
+        description: >
+          Ventes immobilières de Gironde issues du fichier DVF,
+          nettoyées et agrégées par mutation par le pipeline Python.
